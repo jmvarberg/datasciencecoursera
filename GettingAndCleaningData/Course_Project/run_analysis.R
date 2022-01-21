@@ -59,7 +59,7 @@ colNames.new <- sapply(colNames.new, str_replace_all, pattern = "-|\\(\\)-|\\(\\
 colnames(combdf) <- colNames.new
 
 #filter to only keep columns with mean, std or Group/Subject?ActivityLabel info
-keep.index <- sapply(colNames.new, str_detect, pattern="mean|std|Group|Subject|ActivityLabel") #make logical vector for selecting columns based on column names matching one of the provided patterns
+keep.index <- sapply(colNames.new, str_detect, pattern=regex("mean|std|Group|Subject|ActivityLabel", ignore_case = TRUE)) #make logical vector for selecting columns based on column names matching one of the provided patterns
 
 #make new filtered dataframe
 combdf.clean <- combdf[, ..keep.index]
@@ -84,3 +84,4 @@ tidydf <- combdf.clean %>%
 
 #save out tidy dataset
 write.csv(tidydf, "./tidy_samsung_accelerometer_data.csv")
+write.table(tidydf, "./tidy_samsung_accelerometer_data.txt", row.names = FALSE)
