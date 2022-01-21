@@ -1,10 +1,11 @@
-#Week 2 Quize
+#Week 2 Quiz
 
 #Q1: github API
 
 library(jsonlite)
 library(httpuv)
 library(httr)
+library(tidyverse)
 
 oauth_endpoints("github")
 
@@ -30,3 +31,19 @@ ghdf <- fromJSON(toJSON(js1))
 
 #subset dataframe to get desired output
 ghdf[ghdf$full_name == "jtleek/datasharing", "created_at"] 
+
+
+#Q4
+library(xml2)
+
+#download html file using base readLines function. Each line read in to a character vector
+
+q4data <- readLines("http://biostat.jhsph.edu/~jleek/contact.html")
+nchar(q4data[c(10, 20, 30, 100)])
+
+#Q5 reading in fixed-width fortran .for document and parsing
+
+daturl <- "https://d396qusza40orc.cloudfront.net/getdata%2Fwksst8110.for" 
+q5data <- read_fwf(file = daturl, skip=4,
+                   fwf_widths(c(12, 7, 4, 9, 4, 9, 4, 9, 4)))
+
