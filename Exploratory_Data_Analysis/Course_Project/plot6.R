@@ -29,6 +29,7 @@ q6df <- inner_join(NEI, sccdf, by="SCC") %>%
     group_by(year, City) %>% 
     summarise_at(vars(Emissions), sum, na.rm=TRUE)
 
+#make plot
 ggplot(q6df, aes(x=year, y=Emissions)) +
     geom_point() +
     geom_path() +
