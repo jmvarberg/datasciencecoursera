@@ -1,0 +1,62 @@
+---
+title: "Reproducible Research"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Week 1
+
+Workbook for videos for "Structure of a Data Analysis".
+
+Question/Objective: Can we use quantitative characteristics of emails to classify them as SPAM in an automated way?
+
+Will be downloading and using an existing dataset from the library `kernlab`.
+
+```{r}
+library(kernlab)
+data(spam)
+```
+
+Next we perform subsampling to split the dataset into two groups: train and test:
+
+```{r}
+set.seed(3435)
+trainIndicator = rbinom(4601, size=1, prob=0.5)
+table(trainIndicator)
+
+trainSpam = spam[trainIndicator == 1, ]
+testSpam = spam[trainIndicator == 0, ]
+
+knitr::kable(head(trainSpam))
+
+table(trainSpam$type)
+```
+
+Some exploratory plots - first looking at the variable `capitalAve`, which is the average number of capitalized letters in the email. Plot this for the two groups (*note, since lots of zero values, add "1" to this value for all rows, then plot the log10).
+
+```{r}
+plot(log10(trainSpam$capitalAve +1) ~ trainSpam$type)
+```
+
+We see that the 'spam' emails contain more capital letters than non-spam emails.
+
+We can also make pair-wise correlation plots to examine how variables may be correlated with each other. 
+
+```{r}
+plot(log10(trainSpam[ ,1:4]+1))
+```
+
+From this we can see that some variables are more correlated with each other than others. For example, `make` and `all` are more correlated than `all` and `num3d`.
+
+We can look at this in more detail by performing heirarchical clustering. First, we transform them into log10 space (after adding "1" to each value) to avoid clustering issues caused skewed values in variable distributions.
+
+```{r}
+hClust <- hclust(dist(t(log10(trainSpam[, 1:55] +1))))
+plot(hClust)
+```
+
+We can see that some variables cluster together (for example, 'you', 'will' and 'your' cluster on right).
+
