@@ -1,0 +1,271 @@
+---
+title: Assessment of economic and public health consequences of adverse weather events
+  in the United States
+author: "J. Varberg"
+date: "2/26/2022"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, tidy.opts=list(width.cutoff=55),tidy=TRUE)
+knitr::opts_chunk$set()
+library(data.table)
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(cowplot)
+library(rstatix)
+library(readr)
+library(lubridate)
+library(fuzzyjoin)
+library(stringdist)
+library(tibble)
+library(formatR)
+
+```
+
+## Synopsis
+
+This report uses data from the National Oceanic and Atmospheric Administration (NOAA) Storm Database to examine the economic and public health impacts that different types of weather events have in the United States.
+
+## Data Processing
+
+The raw data were obtained [here](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) and read into R using the `read_csv` function from the `readr` package, which can directly handle reading/import of zipped files. 
+
+```{r cache=TRUE}
+rawData <- read_csv("./data/repdata-data-StormData.csv.bz2")
+glimpse(rawData)
+```
+
+Our task for analysis is to answer the following two questions:
+
+    
+1. Across the United States, which types of events (as indicated in the `EVTYPE` variable) are most harmful with respect to population health?
+
+2. Across the United States, which types of events have the greatest economic consequences?
+
+To answer these questions, we will be most interested in examining all of the event types for their values in the columns for fatalities, injuries, property damage, and crop damage. For the property and crop damage, we will also need the values stored in `PROPDMGEXP` and `CROPDMGEXP`, which encode information about the multiplier for values in the `PROPDMG` and `CROPDMG` columns.
+
+First, let's look at the entered values for `EVTYPE`.
+
+```{r}
+sample(unique(rawData$EVTYPE), 50)
+```
+
+The entries for `EVTYPE` are messy - there is a mix of upper and lower class characters used, typos, event types that are combined, etc. We can do a first pass clean up by converting to all upper case to allow combining of types that are similar but coded in different case.
+
+```{r}
+length(unique(rawData$EVTYPE))
+length(unique(toupper(rawData$EVTYPE)))
+```
+
+This quick fix resolves 87 coding errors. According to the NOAA [documentation](https://www.nws.noaa.gov/directives/sym/pd01016005curr.pdf), there are only 55 specific event types that should be entered into the database. We will try to match the entered event type with the most relevant allowed event type. First, let's create a vector of the allowed event types, and visually inspect the `EVTYPE` entries.
+
+```{r}
+
+allowed_events <- toupper(c("Astronomical Low Tide",
+                    "Avalanche",
+                    "Blizzard",
+                    "Coastal Flood",
+                    "Cold/Wind Chill",
+                    "Debris Flow",
+                    "Dense Fog",
+                    "Dense Smoke",
+                    "Drought",
+                    "Dust Devil", 
+                    "Dust Storm",
+                    "Excessive Heat",
+                    "Extreme Cold/Wind Chill",
+                    "Flash Flood",
+                    "Flood",
+                    "Frost/Freeze", 
+                    "Funnel Cloud",
+                    "Freezing Fog",
+                    "Hail",
+                    "Heat", 
+                    "Heavy Rain",
+                    "Heavy Snow",
+                    "High Surf",
+                    "High Wind",
+                    "Hurricane (Typhoon)",
+                    "Ice Storm",
+                    "Lake-Effect Snow",
+                    "Lakeshore Flood",
+                    "Lightning",
+                    "Marine Dense Fog",
+                    "Marine Hail",
+                    "Marine Heavy Freezing Spray",
+                    "Marine High Wind",
+                    "Marine Hurricane/Typhoon",
+                    "Marine Lightning",
+                    "Marine Strong Wind",
+                    "Marine Thunderstorm Wind",
+                    "Marine Tropical Depression",
+                    "Marine Tropical Storm",
+                    "Rip Current",
+                    "Seiche",
+                    "Sleet",
+                    "Sneaker Wave",
+                    "Storm Surge/Tide",
+                    "Strong Wind", 
+                    "Thunderstorm Wind",
+                    "Tornado",
+                    "Tropical Depression",
+                    "Tropical Storm",
+                    "Tsunami",
+                    "Volcanic Ash",
+                    "Waterspout",
+                    "Wildfire",
+                    "Winter Storm",
+                    "Winter Weather"
+))
+
+head(unique(toupper(rawData$EVTYPE)), n=25)
+
+```
+
+One of the things we can see is that `Thunderstorm` is often encoded in shorthand, as `TSTM`. This can easily be replaced with `mutate` and the `str_replace` function. While tidying up the data, let's also select just the columns of interest that have health or economic impact values. Then, we'll convert the `EVTYPE` column values to upper case and date columns from character to date types. We'll also add a column coding whether or not the value is one of the allowed event types.
+
+During this step, we will also convert the values in the `PROPDMG` and `CROPDMG` fields to their full values by multiplying by the values in the corresponding `EXP` columns (see [this](https://rstudio-pubs-static.s3.amazonaws.com/58957_37b6723ee52b455990e149edde45e5b6.html) for explanation of EXP values):
+
+```{r}
+
+tidyData <- rawData %>% 
+  select(BGN_DATE, COUNTY, COUNTYNAME, STATE, EVTYPE, END_DATE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP, REMARKS) %>% 
+  mutate(BGN_DATE = mdy_hms(BGN_DATE),
+         END_DATE = mdy_hms(END_DATE), 
+         EVTYPE = toupper(EVTYPE),
+         EVTYPE = str_replace(EVTYPE, "TSTM", "THUNDERSTORM"),
+         ALLOWED = if_else(EVTYPE %in% allowed_events, true = "ALLOWED", false = "NOT_ALLOWED"), 
+         PROPDMG = case_when(PROPDMGEXP == "H" | PROPDMGEXP == "h" ~ PROPDMG*100,
+                             PROPDMGEXP == "K" ~ PROPDMG*1000,
+                             PROPDMGEXP == "M" | PROPDMGEXP == "m" ~ PROPDMG*1000000,
+                             PROPDMGEXP == "B" ~ PROPDMG*1000000000,
+                             is.numeric(PROPDMGEXP) ~ PROPDMG*10,
+                             TRUE ~ PROPDMG
+                             ),
+         CROPDMG = case_when(CROPDMGEXP == "H" | CROPDMGEXP == "h" ~ CROPDMG*100,
+                             CROPDMGEXP == "K" ~ CROPDMG*1000,
+                             CROPDMGEXP == "M" | CROPDMGEXP == "m" ~ CROPDMG*1000000,
+                             CROPDMGEXP == "B" ~ CROPDMG*1000000000,
+                             is.numeric(CROPDMGEXP) ~ CROPDMG*10,
+                             TRUE ~ CROPDMG
+                             ))
+
+```
+
+Now, let's see how many events are allowed vs. not allowed event types:
+
+```{r}
+with(tidyData, table(ALLOWED))
+```
+
+There are still quite a few entries (~6%) are not properly classified for event type. We only care for ones that have  a public health or economic impact, so let's filter for those and then see how many need to be fixed.
+
+```{r}
+#add columns coding if there was health or economic damages, filter to keep only rows with 
+#at least one type of damages
+
+tidyDataDamages <- tidyData %>%
+  mutate(HealthImpact = if_else(condition = FATALITIES > 0 | INJURIES > 0, true = TRUE, false=FALSE),
+         EconImpact = if_else(condition = PROPDMG > 0 | CROPDMG > 0, true = TRUE, false=FALSE)) %>% 
+  filter(HealthImpact == TRUE | EconImpact == TRUE)
+with(tidyDataDamages, table(ALLOWED))
+```
+
+Removing to only keep events with health or economic damages did not resolve the problem: still have ~8% of events that are not properly classified. We will first remove all of the correctly classified entries, then focus on the improperly classified entries to try to match them to the appropriate allowed event type.
+
+```{r}
+#filter to only keep allowed event types.
+tidyDataDamagesAllowed <- tidyDataDamages %>% 
+  filter(ALLOWED == "ALLOWED")
+
+#get data that we need to fix event type i.e. NON-ALLOWED 
+tidyDataDamagesNonAllowed <- tidyDataDamages %>% 
+  filter(ALLOWED == "NOT_ALLOWED")
+
+#look at which event types still need to be corrected
+head(unique(tidyDataDamagesNonAllowed$EVTYPE), n=25)
+
+```
+
+We will use a "fuzzy join" approach to try to match the coded event type to the closest allowed event type. This essentially works by calculating a distance matrix between the coded string and each of the strings in the allowed events vector, then returns the value with the shortest distance. It is implemented with the `fuzzyjoin` package, for which more details can be found [here](https://cran.r-project.org/web/packages/fuzzyjoin/index.html).
+
+```{r}
+
+allowedEvents <- as_tibble(allowed_events)
+colnames(allowedEvents) <- c("EVTYPE")
+
+not_allowed <- as_tibble(unique(tidyDataDamagesNonAllowed$EVTYPE))
+colnames(not_allowed) <- c("EVTYPE")
+```
+
+There are multiple methods for fuzzy joining, let's see which one works best to accurately find matches for our non-allowed events. We'll create a custom function to loop through all of the available methods, and return a dataframe containing the method name, number of remaining unmatched event types, and then number of event types that a fuzzy join found a corresponding match for.
+
+```{r cache=TRUE}
+
+string_match_test <- function(x, y, method = "lv", ...) {
+  
+  match <- stringdist_join(x, y, mode="left", ignore_case=FALSE, method=method)
+  colnames(match)[1] <- c("Test")
+  colnames(match)[2] <- c("Matched")
+  
+  matches <- match %>%
+    mutate(Match = case_when(Test == Matched ~ "Exact", 
+                             is.na(Matched) ~ "Unmatched",
+                             TRUE ~ "Replaced")) %>% 
+    count(Match)
+  
+  data.frame(matches)
+}
+
+match_methods <- c("osa", "lv", "dl", "hamming", "lcs", "qgram", "cosine", "jaccard", "jw","soundex")
+
+test <- map(match_methods, string_match_test, x=not_allowed, y=allowedEvents)
+names(test) <- match_methods
+
+out <- bind_rows(test, .id = "Method")
+pivot_wider(out, id_cols = Method, names_from = Match, values_from = n)
+
+```
+
+From this output, it looks like the __soundex__ method found the most matches. You can read more about how this method works [here](https://www.archives.gov/research/census/soundex). Let's look at the matches from the soundex method to make sure that it is finding accurate matches.
+
+```{r}
+
+soundex <- stringdist_join(not_allowed, allowedEvents, method='soundex')
+colnames(soundex) <- c("Not_Allowed_EVTYPE", "Matched_Allowed_EVTYPE")
+kable(head(soundex, n=30), booktabs = TRUE) %>% kable_styling(latex_options = "striped")
+```
+
+These look like good matches! We will use the matched events from the soundex approach to replace the non-allowed event types in the dataset.
+
+```{r}
+tidyDataDamagesNonAllowed <- left_join(tidyDataDamagesNonAllowed, soundex, by=c("EVTYPE" = "Not_Allowed_EVTYPE"))
+
+tidyDataDamagesFixed <- tidyDataDamagesNonAllowed %>% 
+  mutate(EVTYPE = Matched_Allowed_EVTYPE,
+         ALLOWED = if_else(EVTYPE %in% allowed_events, true = "ALLOWED", false = "NOT_ALLOWED")) %>% 
+  select(-Matched_Allowed_EVTYPE)
+with(tidyDataDamagesFixed, table(ALLOWED))
+
+```
+
+Now that that we've fixed the event types, there are only 2798 non-allowed event types out of a total of 254,633 total events with damages. That works out to ~1.1% of data that still isn't an allowed type. Let's see how many fatalaties, injuries, and financial damages aren't accounted for in the remaining non-allowed events.
+
+```{r}
+#recombine fixed with allowed for full dataframe
+
+final_df <- bind_rows(tidyDataDamagesAllowed, tidyDataDamagesFixed)
+
+final_df %>%
+  select(ALLOWED, FATALITIES, INJURIES, PROPDMG, CROPDMG) %>% 
+  group_by(ALLOWED) %>% 
+  summarise(across(everything(), ~ sum(.x)))
+  
+```
+
+
