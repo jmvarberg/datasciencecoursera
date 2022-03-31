@@ -1,8 +1,14 @@
-Reproducible Research
+Data Science Courses - Projects
 ================
 
-The projects for week 2 and week 4 of this course are published to
-RPubs, and can be found at the following links:
+### Exploratory Data Analysis
+
+### Getting and Cleaning Data
+
+### Reproducible Research
+
+The projects for week 2 and week 4 of the Reproducible Research course
+are published to RPubs, and can be found at the following links:
 
 [Week 2 Project Notebook](https://rpubs.com/jmvarberg/884676)
 
