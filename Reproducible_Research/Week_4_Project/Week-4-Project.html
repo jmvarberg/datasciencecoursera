@@ -1853,7 +1853,7 @@ pre code {
 
 <div id="synopsis" class="section level2">
 <h2>Synopsis</h2>
-<p>This report uses data from the National Oceanic and Atmospheric Administration (NOAA) Storm Database to examine the economic and public health impacts that different types of weather events have in the United States.</p>
+<p>This report uses data from the National Oceanic and Atmospheric Administration (NOAA) Storm Database to examine the economic and public health impacts that different types of weather events have in the United States. First, we look at the results considering all data from 1950-2011. However, in subsequent analysis we see that only after 1990 were a variety of event types recorded. Although results from both analyses are included, the final <a href="#Corrected_Results">results</a> and <a href="#Corrected_Conclusions">conclusions</a> for the data from 1990-2011 are most robust.</p>
 </div>
 <div id="data-processing" class="section level2">
 <h2>Data Processing</h2>
@@ -1912,31 +1912,31 @@ glimpse(rawData)</code></pre>
 <p>To answer these questions, we will be most interested in examining all of the event types for their values in the columns for fatalities, injuries, property damage, and crop damage. For the property and crop damage, we will also need the values stored in <code>PROPDMGEXP</code> and <code>CROPDMGEXP</code>, which encode information about the multiplier for values in the <code>PROPDMG</code> and <code>CROPDMG</code> columns.</p>
 <p>First, let’s look at the entered values for <code>EVTYPE</code>.</p>
 <pre class="r"><code>sample(unique(rawData$EVTYPE), 50)</code></pre>
-<pre><code>##  [1] &quot;MUDSLIDE&quot;                      &quot;WET SNOW&quot;                     
-##  [3] &quot;LIGHT FREEZING RAIN&quot;           &quot;BRUSH FIRE&quot;                   
-##  [5] &quot;VOG&quot;                           &quot;THUNDERSTORM WIND/LIGHTNING&quot;  
-##  [7] &quot;HIGH WIND/WIND CHILL&quot;          &quot;WARM DRY CONDITIONS&quot;          
-##  [9] &quot;Late Season Snowfall&quot;          &quot;DRY MICROBURST&quot;               
-## [11] &quot;URBAN/SML STREAM FLD&quot;          &quot;Freezing Spray&quot;               
-## [13] &quot;VOLCANIC ASH&quot;                  &quot;FIRST SNOW&quot;                   
-## [15] &quot;THUNDERSTORM WINDS.&quot;           &quot;SNOW&quot;                         
-## [17] &quot;Freezing drizzle&quot;              &quot;FREEZING RAIN&quot;                
-## [19] &quot;Summary of May 26 am&quot;          &quot;Summary of June 30&quot;           
-## [21] &quot;THUNDERSTORM WIND&quot;             &quot;LOCALLY HEAVY RAIN&quot;           
-## [23] &quot;WIND STORM&quot;                    &quot;STORM SURGE/TIDE&quot;             
-## [25] &quot;LAKE-EFFECT SNOW&quot;              &quot;Summary of June 23&quot;           
-## [27] &quot;WHIRLWIND&quot;                     &quot;Lake Effect Snow&quot;             
-## [29] &quot;Prolong Cold&quot;                  &quot;HAIL&quot;                         
-## [31] &quot;COLD AIR FUNNELS&quot;              &quot;EXTREME COLD/WIND CHILL&quot;      
-## [33] &quot;Microburst&quot;                    &quot;blowing snow&quot;                 
-## [35] &quot;Summary August 9&quot;              &quot;HIGH WINDS 58&quot;                
-## [37] &quot;COASTAL FLOODING&quot;              &quot;CSTL FLOODING/EROSION&quot;        
-## [39] &quot;Heavy Rain and Wind&quot;           &quot;HIGH WINDS 66&quot;                
-## [41] &quot;MARINE STRONG WIND&quot;            &quot;SNOW/SLEET/RAIN&quot;              
-## [43] &quot;THUNDERSTORM WINDS/HAIL&quot;       &quot;FROST\\FREEZE&quot;                
-## [45] &quot;Metro Storm, May 26&quot;           &quot;THUNDERSTORM WINDSS&quot;          
-## [47] &quot;HAIL/ICY ROADS&quot;                &quot;MONTHLY RAINFALL&quot;             
-## [49] &quot;Summary of June 11&quot;            &quot;LIGHTNING THUNDERSTORM WINDSS&quot;</code></pre>
+<pre><code>##  [1] &quot;HIGH TEMPERATURE RECORD&quot;      &quot;SNOW DROUGHT&quot;                
+##  [3] &quot;COASTAL STORM&quot;                &quot;WET WEATHER&quot;                 
+##  [5] &quot;Summary August 7&quot;             &quot;Urban flood&quot;                 
+##  [7] &quot;DUST DEVIL&quot;                   &quot;THUNDERSTORM HAIL&quot;           
+##  [9] &quot;GRASS FIRES&quot;                  &quot;RECORD LOW RAINFALL&quot;         
+## [11] &quot;HAILSTORM&quot;                    &quot;Summary June 18-19&quot;          
+## [13] &quot;DRY MICROBURST 84&quot;            &quot;HEAT/DROUGHT&quot;                
+## [15] &quot;No Severe Weather&quot;            &quot;HEAVY PRECIPATATION&quot;         
+## [17] &quot;THUNDERSTORM WINDS LIGHTNING&quot; &quot;SNOW/SLEET/FREEZING RAIN&quot;    
+## [19] &quot;FLOOD FLOOD/FLASH&quot;            &quot;Summary August 11&quot;           
+## [21] &quot;Gusty winds&quot;                  &quot;GUSTY THUNDERSTORM WIND&quot;     
+## [23] &quot;VERY WARM&quot;                    &quot;GRADIENT WIND&quot;               
+## [25] &quot;HEAVY SNOW-SQUALLS&quot;           &quot;FLASH FLOODING/FLOOD&quot;        
+## [27] &quot;WAKE LOW WIND&quot;                &quot;Summary of June 18&quot;          
+## [29] &quot;AVALANCE&quot;                     &quot;Early snowfall&quot;              
+## [31] &quot;HEAVY SNOW/HIGH WINDS&quot;        &quot;RECORD COLD/FROST&quot;           
+## [33] &quot;HEAVY SNOW/WIND&quot;              &quot;Cold Temperature&quot;            
+## [35] &quot;TORNADO/WATERSPOUT&quot;           &quot;HYPOTHERMIA&quot;                 
+## [37] &quot;Summary: Nov. 6-7&quot;            &quot;UNSEASONABLY WARM YEAR&quot;      
+## [39] &quot;Summary of June 3&quot;            &quot;WATERSPOUTS&quot;                 
+## [41] &quot;HIGH WINDS/COLD&quot;              &quot;Hail(0.75)&quot;                  
+## [43] &quot;TORRENTIAL RAIN&quot;              &quot;GUSTY THUNDERSTORM WINDS&quot;    
+## [45] &quot;WIND ADVISORY&quot;                &quot;FREEZING RAIN SLEET AND&quot;     
+## [47] &quot;RECORD COOL&quot;                  &quot;Ice Fog&quot;                     
+## [49] &quot;RECORD HIGH TEMPERATURE&quot;      &quot;LATE SEASON HAIL&quot;</code></pre>
 <p>The entries for <code>EVTYPE</code> are messy - there is a mix of upper and lower class characters used, typos, event types that are combined, etc. We can do a first pass clean up by converting to all upper case to allow combining of types that are similar but coded in different case.</p>
 <pre class="r"><code>length(unique(rawData$EVTYPE))</code></pre>
 <pre><code>## [1] 977</code></pre>
@@ -3604,6 +3604,7 @@ ggplot(evtypes_decades, aes(x=n, y=reorder_within(EVTYPE, n, decade))) +
 <p>This uncovers a major issue with the dataset affecting its interpretation - only after 1990 do we see that a variety of event types are reported. Before that, we only had data reported for Tornadoes (1950-1980) and Tornados/Thunderstorm Wind/Hail (1980-1990). This will skew our interpretation of the impact tornados have relative to other event types because other event types weren’t being reported. Let’s revisit the original results and only use data from 1990-2011 for our analysis.</p>
 <div id="corrected-results---1990-2011" class="section level3">
 <h3>Corrected Results - 1990-2011</h3>
+<p><a id="Corrected_Results"></a></p>
 <pre class="r"><code>#let's make a summary table grouped by event type
 
 summary_output &lt;- final_df %&gt;% 
@@ -4469,7 +4470,7 @@ p + scale_x_continuous(labels = comma)</code></pre>
 </div>
 <div id="conclusions---1990-2011" class="section level3">
 <h3>Conclusions - 1990-2011</h3>
-<p>We see that toranados still have the most significant negative impact on public health as compared to other adverse weather types. However, the interpretation of fatalities changes when we don’t use the tornado-skewed data from 1950-1990 - now we can see that Excessive Heat is a major cause of death due to weather.</p>
+<p><a id="Corrected_Conclusions"></a> We see that toranados still have the most significant negative impact on public health as compared to other adverse weather types. However, the interpretation of fatalities changes when we don’t use the tornado-skewed data from 1950-1990 - now we can see that Excessive Heat is a major cause of death due to weather.</p>
 <p>Based on the full analysis, it looks like reporting has increased significantly in the 1990s, with more event types being recorded nation wide. Since then, it appears that most states have been more compliant about using only the 55 allowed event types, as seen by the large decrease in the number of non-allowed event type entries from the 1990s to the 2000s. It is likely that the list of 55 allowed event types may have been introduced in the late 1990’s or early 2000’s as an effort to standardize event type entries. It may be worth reaching out to certain states with increased non-allowed event types to encourage better compliance, including California, New York and Florida.</p>
 </div>
 </div>
