@@ -1,4 +1,3 @@
-base
 data.table
 tidyverse
 ggplot2
@@ -17,3 +16,6 @@ kableExtra
 fuzzyjoin
 stringdist
 formatR
+tidytext
+janitor
+plotly

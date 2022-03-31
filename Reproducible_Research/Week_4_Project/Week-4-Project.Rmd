@@ -4,14 +4,13 @@ title: Assessment of economic and public health consequences of adverse weather 
 author: "J. Varberg"
 date: "2/26/2022"
 output:
-  pdf_document: default
   html_document:
     df_print: paged
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, tidy.opts=list(width.cutoff=55),tidy=TRUE)
-knitr::opts_chunk$set()
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
 library(data.table)
 library(knitr)
 library(kableExtra)
@@ -24,6 +23,9 @@ library(fuzzyjoin)
 library(stringdist)
 library(tibble)
 library(formatR)
+library(tidytext)
+library(janitor)
+library(ggtext)
 
 ```
 
@@ -36,6 +38,11 @@ This report uses data from the National Oceanic and Atmospheric Administration (
 The raw data were obtained [here](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) and read into R using the `read_csv` function from the `readr` package, which can directly handle reading/import of zipped files. 
 
 ```{r cache=TRUE}
+checkFile <- file.exists("./data/repdata-data-StormData.csv.bz2")
+
+if (!checkFile) {
+  download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", destfile = "./data/repdata-data-StormData.csv.bz2")
+}
 rawData <- read_csv("./data/repdata-data-StormData.csv.bz2")
 glimpse(rawData)
 ```
@@ -261,11 +268,324 @@ Now that that we've fixed the event types, there are only 2798 non-allowed event
 
 final_df <- bind_rows(tidyDataDamagesAllowed, tidyDataDamagesFixed)
 
-final_df %>%
+damagesSummary <- final_df %>%
   select(ALLOWED, FATALITIES, INJURIES, PROPDMG, CROPDMG) %>% 
   group_by(ALLOWED) %>% 
-  summarise(across(everything(), ~ sum(.x)))
+  summarise(across(everything(), ~ sum(.x))) %>% 
+  select(-ALLOWED) %>% 
+  t() %>% 
+  as.data.frame() %>% 
+  rename(ALLOWED = V1, NONALLOWED = V2) %>% 
+  mutate(TOTAL = NONALLOWED+ALLOWED,
+         FRAC.MISSING = NONALLOWED/TOTAL)
+kable(damagesSummary, booktabs = TRUE) %>% kable_styling(latex_options = "striped") 
+```
+
+From this, it looks like we've accounted for ~95% of fatalaties, and ~98% of injuries and property damage. However, we are still missing ~13% of all crop damages. Let's see if we can manually fix the crop damages entries to get them included in the dataset. To do this, we will examine the recorded event types and remarks section to choose the most appropriate allowed event type.
+
+
+```{r}
+tidyDataDamagesNonAllowedNotMatchedFix <- tidyDataDamagesNonAllowed %>% 
+  filter(is.na(Matched_Allowed_EVTYPE)) %>% 
+  mutate(Matched_Allowed_EVTYPE = case_when(str_detect(EVTYPE, "FLOOD") ~ "FLOOD",
+                                            str_detect(EVTYPE, "HAIL") ~ "HAIL", 
+                                            str_detect(EVTYPE, "THUNDERSTORM") ~ "THUNDERSTORM WIND",
+                                            str_detect(EVTYPE, "FREEZE") ~ "FROST/FREEZE",
+                                            str_detect(EVTYPE, "FROST") ~ "FROST/FREEZE",
+                                            str_detect(EVTYPE, "COLD") ~ "COLD/WIND CHILL",
+                                            str_detect(EVTYPE, "HEAT") ~ "HEAT",
+                                            str_detect(EVTYPE, "URBAN/SML STREAM FLD") ~ "HAIL",
+                                            str_detect(EVTYPE, "LANDSLIDE") ~ "HEAVY RAIN",
+                                            str_detect(EVTYPE, "RAIN")  ~ "HEAVY RAIN"))
+tidyDataDamagesNonAllowedMatched <- tidyDataDamagesNonAllowed %>% 
+  filter(!is.na(Matched_Allowed_EVTYPE))
+
+tidyDataDamagesFixed <- bind_rows(tidyDataDamagesNonAllowedMatched, tidyDataDamagesNonAllowedNotMatchedFix) %>% 
+    mutate(EVTYPE = Matched_Allowed_EVTYPE,
+         ALLOWED = if_else(EVTYPE %in% allowed_events, true = "ALLOWED", false = "NOT_ALLOWED")) %>%
+  select(-Matched_Allowed_EVTYPE)
+
+#remake final df and look at summary damages after manual fixes
+final_df <- bind_rows(tidyDataDamagesAllowed, tidyDataDamagesFixed)
+
+
+damagesSummary <- final_df %>%
+  select(ALLOWED, FATALITIES, INJURIES, PROPDMG, CROPDMG) %>% 
+  group_by(ALLOWED) %>% 
+  summarise(across(everything(), ~ sum(.x))) %>% 
+  select(-ALLOWED) %>% 
+  t() %>% 
+  as.data.frame() %>% 
+  rename(ALLOWED = V1, NONALLOWED = V2) %>% 
+  mutate(TOTAL = NONALLOWED+ALLOWED,
+         FRAC.MISSING = NONALLOWED/TOTAL)
+kable(damagesSummary, booktabs = TRUE) %>% kable_styling(latex_options = "striped") 
+
+```
+
+Manually fixing the non-allowed event types dramatically improved the coverage for crop damage (from 12% non-allowed to 0.01% after fixing) and also improved the property damage coverage ~10-fold. We will go ahead and move forward with this dataset where the majority of the damages have been properly assigned into an allowed event type.
+
+## Results - 1950 to 2011
+
+### See below for the [Corrected Results - 1990-2011]
+
+Our task for analysis is to answer the following two questions:
+
+1. Across the United States, which types of events (as indicated in the `EVTYPE` variable) are most harmful with respect to population health?
+
+2. Across the United States, which types of events have the greatest economic consequences?
+
+#### Summary Table
+
+First, let's make a table summarizing the number of fatalities/injuries and the amount of property/crop damage for each event type.
+
+```{r}
+#let's make a summary table grouped by event type
+
+summary_output <- final_df %>% 
+  filter(!is.na(EVTYPE)) %>%
+  group_by(EVTYPE) %>% 
+  summarise(across(.cols=c("FATALITIES", "INJURIES", "PROPDMG", "CROPDMG"), ~sum(.))) %>% 
+  mutate(PROPDMG = PROPDMG/1000000,
+         CROPDMG = CROPDMG/1000) %>% 
+  rename(`Event Type` = EVTYPE, Fatalities = FATALITIES, Injuries = INJURIES, `Property Damage (dollars in millions)` = PROPDMG, `Crop Damage (dollars in thousands)` = CROPDMG) %>% 
+  mutate_if(is.numeric, round, digits=2) %>% 
+  arrange(-Fatalities, -Injuries, -`Property Damage (dollars in millions)`, -`Crop Damage (dollars in thousands)`)
+kable(summary_output, booktabs = TRUE) %>% kable_styling(latex_options = "striped") 
   
 ```
 
+#### Summary Plots
+
+Now, let's look at a plot for the top fifteen event types for each type of damage.
+
+```{r fig.width=12,fig.height=9}
+#pivot the summary table to long format for ggploting
+
+plot_df <- summary_output %>% 
+  pivot_longer(cols= c(2:5)) %>% 
+  group_by(name) %>%
+  slice_max(order_by = value, n=15) %>%
+  ungroup() %>% 
+  mutate(name = factor(name, levels = c("Injuries", "Fatalities", "Crop Damage (dollars in thousands)", "Property Damage (dollars in millions)")))
+
+
+
+p <- ggplot(plot_df, aes(x=value, y=reorder_within(`Event Type`, value, name))) +
+  geom_segment(aes(yend = reorder_within(`Event Type`, value, name)), xend = 0, colour = "grey50") +
+  geom_point(size=3, color="darkblue") +
+  scale_y_reordered() +
+  facet_wrap(~name, scales = "free")+
+  xlab("") +
+  ylab("") +
+  ggtitle("The top fifteen most damaging weather event types in the U.S., 1950-2011") +
+  theme_bw() +
+  theme(text = element_text(size = 14),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        plot.margin = unit(c(0.1,0.7,0.1,0), "cm"))  
+
+require(scales)
+p + scale_x_continuous(labels = comma)
+```
+
+#### Conclusions
+
+Toranados have the most significant negative impact on public health as compared to other adverse weather types. Heat and flooding are also leading causes of death caused by weather events. In terms of economic impacts, events that have high winds and high levels of water (flooding, hurricanes, tornados, etc.) are the leading causes of property damage caused by weather. While flooding and hurricanes also impact crops, certain weather events such as drought, ice storms and hail uniquely impact crops, causing large economic losses to crops without significant public health impacts.
+
+### Bonus 1: Using chloropleth map plots to visualize spatial distribution of weather-related injuries
+
+Let's look at the distribution of injuries from tornados. We will make a chloropleth map, overlaying a heat map of cummulative injuries from 1950-2011 on the US map at the state level. Will only visualize damages on the 48 contiguous U.S. states.
+
+```{r, fig.width=10, fig.asp=0.6}
+us_states <- map_data("state")
+
+#make df with state name and abbreviation
+statedf <- data.frame(state.abb, "name"=tolower(state.name))
+
+#group final_df by state and summarise
+state_sum <- final_df %>% 
+  group_by(EVTYPE,STATE) %>% 
+  summarise(across(.cols=c("INJURIES", "PROPDMG"), ~sum(.))) %>% 
+  left_join(., statedf, by=c("STATE" = "state.abb")) %>% 
+  filter(!is.na(name))
+
+#combine into one df
+statePlotdf <- left_join(us_states, state_sum, by=c("region" = "name")) %>% rename(state = STATE)
+
+#make plots
+
+p1 <- ggplot() +
+  geom_polygon(data=statePlotdf %>% filter(EVTYPE=="TORNADO"), aes(x=long, y=lat, group=group, fill=INJURIES), color="black") +
+  scale_fill_continuous(name="Injuries", type="viridis") +
+  ggtitle("Injuries caused by tornadoes, 1950-2011") +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5))
+p1
+
+```
+
+## Bonus 2: What states are safest to live in (i.e., lowest level of weather-related damages)
+
+Let's examine which states have the lowest levels of injuries/fatalities and therefore might be the "safest" states to live in with respect to weather.
+
+```{r, fig.width=8, fig.height=10}
+#get all events causing health impacts, group by state, sum by decade keeping ten lowest states each decade.
+
+safe_df <- tidyDataDamages %>% 
+  filter(HealthImpact==TRUE, STATE %in% statedf$state.abb) %>% 
+  mutate(year = as.numeric(format(BGN_DATE, format="%Y")),
+         decade = floor(year/10)*10) %>% 
+  group_by(STATE, decade) %>%
+  summarise(across(.cols = c(FATALITIES,INJURIES), ~sum(.))) %>% 
+  ungroup() %>% 
+  mutate(Total = FATALITIES + INJURIES) %>% 
+  group_by(decade) %>% 
+  slice_min(order_by = Total, n=10) %>%
+  ungroup()
+
+inj_p <- ggplot(safe_df, aes(x=Total, y=reorder_within(STATE, Total, decade))) +
+  geom_segment(aes(yend = reorder_within(STATE, Total, decade)), xend = 0, colour = "grey50") +
+  geom_point(size=3, color="darkblue") +
+  scale_y_reordered() +
+  ylab("") +
+  xlab("Total number of injuries or fatalities") +
+  ggtitle("Ten states with lowest number of weather-related injuries or fatalities by decade") +
+  facet_wrap(~decade, scales = "free") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.text.y = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+
+inj_p
+  
+```
+
+In addition to the takeaway of which states are the safest, we notice that the number of injuries/fatalities per decade dramatically increased during the 1980s through 2000s. This likely reflects an increase in the reporting of events to the database, as opposed to an increase in the weather events that cause injuries/fatalities nation wide. An alternative explanation for these states having the lowest number of fatalaties or injuries is that they are not reporting all of their weather events. Would be interesting to look at the total number of weather events reported, regardless of whether there were injuries or fatalities, to compare.
+
+## Bonus 3: Where are all of the non-allowed event types coming from?
+
+Let's look at the non-allowed event types to see what years they were coming from, and whether any state had higher levels of mistakes.
+
+```{r, fig.width=10, fig.height=8}
+
+tidyDataDamages %>% 
+  filter(ALLOWED != "ALLOWED", STATE %in% statedf$state.abb) %>% 
+  mutate(year = as.numeric(format(BGN_DATE, format="%Y")),
+         decade = floor(year/10)*10) %>% 
+  group_by(STATE, decade) %>% 
+  count() %>% 
+  ggplot(., aes(x=n, y=reorder(STATE,n))) +
+  geom_col(fill="navy", alpha=0.7) +
+  ylab("State") +
+  xlab("Number of Non-Allowed Event Type Entries") +
+  ggtitle("Non-allowed entries for event type were predominantly found in the 1990's") +
+  facet_wrap(~decade) +
+  theme_minimal_vgrid()
+
+```
+
+This is a surprising result: there were no (zero!) non-allowed event type entries for the 1950s, 1960s, 1970s or 1980s! Why was there an emergence of event type entries that did not match the 55 allowed event types in the 1990s? Let's look at the top event types by decade based on number of entries. Expect that the event types should be in allowed list until the 1990s.
+
+```{r, fig.width=12, fig.height=8}
+evtypes_decades <- tidyDataDamages %>% 
+  filter(STATE %in% statedf$state.abb) %>% 
+  mutate(year = as.numeric(format(BGN_DATE, format="%Y")),
+         decade = floor(year/10)*10) %>% 
+  group_by(EVTYPE, decade) %>% 
+  count() %>%
+  group_by(decade) %>% 
+  slice_max(order_by = n, n=10)
+
+ggplot(evtypes_decades, aes(x=n, y=reorder_within(EVTYPE, n, decade))) +
+  geom_segment(aes(yend = reorder_within(EVTYPE, n, decade)), xend = 0, colour = "grey50") +
+  geom_point(size=3, color="darkblue") +
+  scale_y_reordered() +
+  ylab("") +
+  xlab("Number of Entries") +
+  ggtitle("All events entered between 1950-1980 are tornadoes", subtitle = "Only see full set of event types entered after 1990") +
+  facet_wrap(~decade, scales ="free_y") +
+  theme_minimal_vgrid()
+
+```
+
+This uncovers a major issue with the dataset affecting its interpretation - only after 1990 do we see that a variety of event types are reported. Before that, we only had data reported for Tornadoes (1950-1980) and Tornados/Thunderstorm Wind/Hail (1980-1990). This will skew our interpretation of the impact tornados have relative to other event types because other event types weren't being reported. Let's revisit the original results and only use data from 1990-2011 for our analysis.
+
+### Corrected Results - 1990-2011
+
+```{r fig.width=12,fig.height=9}
+#let's make a summary table grouped by event type
+
+summary_output <- final_df %>% 
+  filter(!is.na(EVTYPE), BGN_DATE >= "1990-01-01") %>% 
+  group_by(EVTYPE) %>% 
+  summarise(across(.cols=c("FATALITIES", "INJURIES", "PROPDMG", "CROPDMG"), ~sum(.))) %>% 
+  mutate(PROPDMG = PROPDMG/1000000,
+         CROPDMG = CROPDMG/1000) %>% 
+  rename(`Event Type` = EVTYPE, Fatalities = FATALITIES, Injuries = INJURIES, `Property Damage (dollars in millions)` = PROPDMG, `Crop Damage (dollars in thousands)` = CROPDMG) %>% 
+  mutate_if(is.numeric, round, digits=2) %>% 
+  arrange(-Fatalities, -Injuries, -`Property Damage (dollars in millions)`, -`Crop Damage (dollars in thousands)`)
+kable(summary_output, booktabs = TRUE) %>% kable_styling(latex_options = "striped") 
+
+#pivot the summary table to long format for ggploting
+
+plot_df <- summary_output %>% 
+  pivot_longer(cols= c(2:5)) %>% 
+  group_by(name) %>%
+  slice_max(order_by = value, n=15) %>%
+  ungroup() %>% 
+  mutate(name = factor(name, levels = c("Injuries", "Fatalities", "Crop Damage (dollars in thousands)", "Property Damage (dollars in millions)")))
+
+
+
+p <- ggplot(plot_df, aes(x=value, y=reorder_within(`Event Type`, value, name))) +
+  geom_segment(aes(yend = reorder_within(`Event Type`, value, name)), xend = 0, colour = "grey50") +
+  geom_point(size=3, color="darkblue") +
+  scale_y_reordered() +
+  facet_wrap(~name, scales = "free")+
+  xlab("") +
+  ylab("") +
+  ggtitle("The top fifteen most damaging weather event types in the U.S., 1990-2011") +
+  theme_bw() +
+  theme(text = element_text(size = 14),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        plot.margin = unit(c(0.1,0.7,0.1,0), "cm"))  
+
+require(scales)
+p + scale_x_continuous(labels = comma)
+```
+
+### Conclusions - 1990-2011
+
+We see that toranados still have the most significant negative impact on public health as compared to other adverse weather types. However, the interpretation of fatalities changes when we don't use the tornado-skewed data from 1950-1990 - now we can see that Excessive Heat is a major cause of death due to weather.
+
+Based on the full analysis, it looks like reporting has increased significantly in the 1990s, with more event types being recorded nation wide. Since then, it appears that most states have been more compliant about using only the 55 allowed event types, as seen by the large decrease in the number of non-allowed event type entries from the 1990s to the 2000s. It is likely that the list of 55 allowed event types may have been introduced in the late 1990's or early 2000's as an effort to standardize event type entries. It may be worth reaching out to certain states with increased non-allowed event types to encourage better compliance, including California, New York and Florida.
+
+
+## Wrap Up
+
+What did we learn in terms of R coding, plotting, and report generation during this exercise?
+
+Major takeaways:
+
+1. **Data input for large datasets** - it is helpful to be able to read in a zipped file directly without unzipping using the `read_csv` function. This was a large dataset, and the most time intensive part of the analysis is actually downloading and reading in the data. It is very helpful to be able to cache this step using `cache = TRUE` in the R chunk. Note that you want to keep this part in a separate R chunk from any downstream processing, as the caching only works if there have been no changes to the code in that specific R chunk.
+
+2. **Cleaning messy data** - unsurprisingly, 90% of the work for this project involved cleaning up or reformatting messy data. Like most large datasets that are made by taking input from multiple people, there were lots of data entry mistakes that make aggregating and summarizing the data difficult. In this case, it was largely due to differences in the entries for event types - many did not conform to the set of 55 "allowed" event types. (However, note that are were also other entry errors as well, for example typos in the entries for "State"). While we were able to resolve the vast majority of incorrect entries, getting full coverage for the remaining ~5% of entries would require deeper analysis on a case by case basis to manually correct the remaining bad entries. This is a good reminder/example that "perfection is the enemy of progress" - unless there is compelling reason to have complete coverage, it is better to have analysis of the 95% correct dataset than holding up the analysis to get the last 5%.
+
+3. **String matching with fuzzyjoin** - one of the most helpful tools we used in this analysis is the `fuzzy_join` method for matching non-exact strings. There were multiple methods available, and while the "soundex" method worked well in this case, it will likely be important to test other methods for other use cases. In this project, it was also good to practice using `map` function to pipe multiple inputs (in a vector) through our custom function in one call.
+
+4. **Kable and kableExtra make pretty tables for reports** - these are very nice packages that make dramatic improvements in readability and presentation of tabular data for reporting, and allow for fine-tuning of display and output. They are especially capable for reports knit to HTML documents.
+
+5. **Reordering within facets** - this was a really helpful [post by Julia Silge](https://juliasilge.com/blog/reorder-within/) that walks through how to use functions from the `tidytext` package to reorder within facets. You can use the `reorder_within()` function inside the ggplot aes() call, and remember that you have to include the `scale_*_reordered()` function in the ggplot recipe in order to have the axis labels shown correctly! If they still show the "___" separator, then you have called the `scale_*_reordered()` function on the wrong variable!
+
+6. **Plotting data on maps** - this was the first time trying out chloropleth plots to overlay data on maps. In this project, we relied on the builtin US map functions that come with ggplot, however note that there are other packages for making map plots.
+
+7. **Knitting reports to PDF** - it is much, much more straightforward to knit RMarkdown documents to HTML. Knitting to PDF requires a LaTeX installation on your computer - can try the [tinyTeX](https://yihui.org/tinytex/) package and follow their installation instructions. Be prepared to update the write permissions for your `usr/local/bin` directory using the command line, and also potentially needing to update your packages using the troubleshooting provided on the tinytex website. Knitting to PDF also can cause some issues with code in chunks being wider than the chunk itself and running off the page, also some instances where the chunk output does not follow the order in the RMarkdown document. Be ready to spend more time ensuring that the PDF document formatting is correct if you are going to use PDF instead of HTML.
+
+#### Session Information
+```{r}
+sessionInfo()
+```
 
